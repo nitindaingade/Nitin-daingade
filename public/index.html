@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Global Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #chat-container { height: calc(100vh - 2rem); }
+    #messages { height: calc(100% - 7rem); }
+    .sent { background-color: #34D399; margin-left: auto; }
+    .received { background-color: #E5E7EB; }
+    .seen { font-size: 0.75rem; color: #6B7280; text-align: right; }
+    .timestamp { font-size: 0.65rem; color: #6B7280; }
+    #typing-indicator { font-style: italic; color: #6B7280; }
+    @media (max-width: 640px) {
+      #chat-container { height: calc(100vh - 4rem); }
+      #messages { height: calc(100% - 8rem); }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div id="name-section" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center">
+    <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-sm">
+      <h2 class="text-2xl font-bold mb-4 text-center">Enter Your Name</h2>
+      <input id="name-input" type="text" placeholder="Your name" class="w-full p-2 border rounded mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <button id="join-btn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Join Chat</button>
+    </div>
+  </div>
+  <div id="chat-container" class="hidden w-full max-w-2xl bg-white rounded-lg shadow-lg flex flex-col p-4">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-lg font-bold">Global Chat</h2>
+      <div id="online-users" class="text-sm text-gray-600"></div>
+    </div>
+    <div id="messages" class="flex-1 overflow-y-auto p-4 bg-gray-50 rounded mb-4"></div>
+    <div id="typing-indicator" class="text-sm mb-2"></div>
+    <div class="flex">
+      <input id="message-input" type="text" placeholder="Type a message... (try 😊👍)" class="flex-1 p-2 border rounded-l focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <button id="send-btn" class="bg-blue-500 text-white p-2 rounded-r hover:bg-blue-600">Send</button>
+    </div>
+  </div>
+  <script>
+    const socket = io();
+    const nameSection = document.getElementById('name-section');
+    const chatContainer = document.getElementById('chat-container');
+    const nameInput = document.getElementById('name-input');
+    const joinBtn = document.getElementById('join-btn');
+    const messageInput = document.getElementById('message-input');
+    const sendBtn = document.getElementById('send-btn');
+    const messages = document.getElementById('messages');
+    const typingIndicator = document.getElementById('typing-indicator');
+    const onlineUsers = document.getElementById('online-users');
+    let userName = '';
+    let typingTimeout;
+
+    joinBtn.addEventListener('click', () => {
+      userName = nameInput.value.trim();
+      if (userName) {
+        nameSection.classList.add('hidden');
+        chatContainer.classList.remove('hidden');
+        socket.emit('userJoined', userName);
+      }
+    });
+
+    nameInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') joinBtn.click();
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    messageInput.addEventListener('input', () => {
+      socket.emit('typing', userName);
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => socket.emit('stopTyping', userName), 1000);
+    });
+
+    function sendMessage() {
+      const message = messageInput.value.trim();
+      if (message && userName) {
+        const messageId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        socket.emit('chatMessage', { name: userName, message, messageId });
+        messageInput.value = '';
+      }
+    }
+
+    socket.on('message', ({ name, message, messageId, timestamp }) => {
+      const isSent = name === userName;
+      const messageElement = document.createElement('div');
+      messageElement.classList.add('p-2', 'mb-2', 'rounded', 'max-w-[80%]', isSent ? 'sent' : 'received', isSent ? 'ml-auto' : 'mr-auto');
+      messageElement.dataset.messageId = messageId;
+      const formattedTime = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      messageElement.innerHTML = `<strong>${name}:</strong> ${message}<div class="timestamp">${formattedTime}</div>`;
+      messages.appendChild(messageElement);
+      messages.scrollTop = messages.scrollHeight;
+      if (!isSent) {
+        socket.emit('messageSeen', { messageId, viewer: userName });
+      }
+    });
+
+    socket.on('messageSeen', ({ messageId, viewer }) => {
+      const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+      if (messageElement && messageElement.classList.contains('sent')) {
+        const seenElement = document.createElement('div');
+        seenElement.classList.add('seen');
+        seenElement.textContent = `Seen by ${viewer}`;
+        messageElement.appendChild(seenElement);
+        messages.scrollTop = messages.scrollHeight;
+      }
+    });
+
+    socket.on('typing', (name) => {
+      if (name !== userName) {
+        typingIndicator.textContent = `${name} is typing...`;
+      }
+    });
+
+    socket.on('stopTyping', (name) => {
+      if (name !== userName) {
+        typingIndicator.textContent = '';
+      }
+    });
+
+    socket.on('onlineUsers', (users) => {
+      onlineUsers.textContent = `Online: ${users.join(', ')}`;
+    });
+  </script>
+</body>
+</html>
